@@ -1,0 +1,2 @@
+Project Description
+This project explores survey data on 36 life pleasures to uncover hidden patterns. Using z-score normalization, k-means clustering, and exploratory factor analysis (oblimin rotation), it identifies both profiles of people with similar pleasure patterns and groups of pleasures that naturally cluster together. The goal is to turn raw data into clear insights about human behavior while demonstrating practical skills in data analysis and unsupervised machine learning.
