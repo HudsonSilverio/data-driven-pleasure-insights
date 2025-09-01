@@ -6,15 +6,17 @@ import tkinter as tk
 from tkinter import filedialog
 import unicodedata
 
-# ---- Formatação global: SEM notação científica (mais amigável p/ leigos) ----
-np.set_printoptions(suppress=True)                  # numpy não usa e-notation
-pd.set_option("display.float_format", "{:,.4f}".format)  # pandas imprime 4 casas
-pd.set_option("display.max_rows", 200)
-pd.set_option("display.max_columns", 200)
+# ---- Formatação legível: SEM notação científica ----
+np.set_printoptions(suppress=True)
+pd.set_option("display.float_format", "{:,.4f}".format)
 pd.set_option("display.width", 120)
+pd.set_option("display.max_columns", 200)
 
 # 00) Selecionar e carregar Excel
 def escolher_arquivo_excel() -> str:
+    """
+    Abre uma janela para o usuário selecionar um arquivo .xlsx no computador.
+    """
     root = tk.Tk()
     root.withdraw()
     caminho = filedialog.askopenfilename(
@@ -24,10 +26,16 @@ def escolher_arquivo_excel() -> str:
     return caminho
 
 def carregar_excel(caminho: str) -> pd.DataFrame:
+    """
+    Lê o arquivo Excel no DataFrame do pandas.
+    """
     return pd.read_excel(caminho)
 
 # Utilitários
 def normalizar_nomes_colunas(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normaliza nomes de colunas (remove espaços/normaliza Unicode).
+    """
     def _norm(s: str) -> str:
         if not isinstance(s, str):
             s = str(s)
@@ -39,65 +47,72 @@ def normalizar_nomes_colunas(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 def detectar_colunas_prazer(df: pd.DataFrame) -> list:
+    """
+    Retorna todas as colunas cujo nome começa com 'p_' (tipos de prazer).
+    """
     return [c for c in df.columns if isinstance(c, str) and c.startswith("p_")]
 
 def forcar_numerico(df: pd.DataFrame, colunas: list) -> pd.DataFrame:
+    """
+    Converte colunas de prazer para numérico; valores inválidos viram NaN.
+    """
     out = df.copy()
     out[colunas] = out[colunas].apply(pd.to_numeric, errors="coerce")
     return out
 
-# 01) Médianas (Top maiores e Top menores)
-def medianas_por_coluna(df: pd.DataFrame, colunas: list) -> pd.Series:
-    return df[colunas].median(skipna=True)
+# ------------------- Limpezas/validações solicitadas -------------------
 
-# 02) Médias (Top maiores e Top menores)
-def medias_por_coluna(df: pd.DataFrame, colunas: list) -> pd.Series:
-    return df[colunas].mean(skipna=True)
+def remover_duplicatas(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Remove linhas duplicadas completas.
+    """
+    return df.drop_duplicates()
 
-# 03) Distribuição por escala
-def distribuicao_por_escala(df: pd.DataFrame, colunas: list, escala=(-3, -2, -1, 0, 1, 2, 3)) -> pd.DataFrame:
-    dist_dict = {}
-    for c in colunas:
-        serie = df[c]
-        contagens = {p: int((serie == p).sum()) for p in escala}  # imprime como int
-        dist_dict[c] = contagens
-    dist_df = pd.DataFrame(dist_dict).T
-    dist_df = dist_df[list(escala)]
-    return dist_df
+def remover_linhas_incompletas(df: pd.DataFrame, colunas: list) -> pd.DataFrame:
+    """
+    Remove linhas que não possuem TODOS os dados preenchidos nas colunas de prazer.
+    """
+    return df.dropna(subset=colunas)
 
-# 04) Desvio padrão
-def desvios_por_coluna(df: pd.DataFrame, colunas: list) -> pd.Series:
-    return df[colunas].std(skipna=True)
+def validar_escala_por_linha(df: pd.DataFrame, colunas: list) -> pd.DataFrame:
+    """
+    Mantém apenas linhas onde TODAS as colunas de prazer estão em {-3,-2,-1,0,1,2,3}.
+    Linhas com qualquer valor fora desse conjunto são excluídas.
+    """
+    escala_valida = {-3, -2, -1, 0, 1, 2, 3}
+    mask_valida = df[colunas].applymap(lambda x: x in escala_valida).all(axis=1)
+    return df[mask_valida].copy()
 
-# Impressões amigáveis
-def imprimir_ranking_duplo(titulo_alto: str, titulo_baixo: str, serie: pd.Series, n: int = 10):
-    # Ordenações separadas
-    serie_sorted_desc = serie.sort_values(ascending=False)
-    serie_sorted_asc  = serie.sort_values(ascending=True)
+# ----------------------- FUNÇÕES DE RANKING -----------------------
 
-    print("\n" + "=" * 100)
-    print(titulo_alto)
-    print("=" * 100)
-    df_top = serie_sorted_desc.head(n).to_frame(name="value")
-    print(df_top.to_string())
+def top10_maiores_medianas(df: pd.DataFrame, colunas: list, n: int = 10) -> pd.Series:
+    """
+    Calcula a mediana por coluna e retorna as Top-N colunas com MAIORES medianas.
+    """
+    medianas = df[colunas].median(skipna=True)
+    return medianas.sort_values(ascending=False).head(n)
 
-    print("\n" + "-" * 100)
-    print(titulo_baixo)
-    print("-" * 100)
-    df_bottom = serie_sorted_asc.head(n).to_frame(name="value")
-    print(df_bottom.to_string())
+def top10_maiores_medias(df: pd.DataFrame, colunas: list, n: int = 10) -> pd.Series:
+    """
+    Calcula a média por coluna e retorna as Top-N colunas com MAIORES médias.
+    """
+    medias = df[colunas].mean(skipna=True)
+    return medias.sort_values(ascending=False).head(n)
 
-def imprimir_tabela(titulo: str, df: pd.DataFrame, max_rows: int = 25):
+# ----------------------- IMPRESSÃO -----------------------
+
+def imprimir_serie(titulo: str, serie: pd.Series):
+    """
+    Imprime uma Series (ranking) de forma amigável no terminal.
+    """
     print("\n" + "=" * 100)
     print(titulo)
     print("=" * 100)
-    if len(df) > max_rows:
-        print(df.head(max_rows).to_string())
-        print(f"... ({len(df) - max_rows} linhas restantes não exibidas)")
-    else:
-        print(df.to_string())
+    df_print = serie.to_frame(name="score")
+    print(df_print.to_string())
 
-# Execução principal
+# ----------------------- EXECUÇÃO -----------------------
+
 if __name__ == "__main__":
     print("🔍 Escolha o arquivo Excel (.xlsx) com as respostas (escala -3..3).")
     caminho = escolher_arquivo_excel()
@@ -112,38 +127,34 @@ if __name__ == "__main__":
     print(f"\n📌 Colunas de prazer detectadas ({len(colunas_prazer)}):")
     print(colunas_prazer)
 
-    # Garantir tipo numérico (evita textos e garante cálculos corretos)
+    # Garantir tipo numérico
     df = forcar_numerico(df, colunas_prazer)
 
-    # 01) MEDIANAS: Top 10 maiores e Top 10 menores
-    medians = medianas_por_coluna(df, colunas_prazer)
-    imprimir_ranking_duplo(
-        "Top 10 – Highest median rating (by pleasure)",
-        "Top 10 – Lowest median rating (by pleasure)",
-        medians, n=10
-    )
+    # Limpezas na ordem correta: duplicatas -> incompletas -> validação de escala por linha
+    linhas_iniciais = len(df)
 
-    # 02) MÉDIAS: Top 10 maiores e Top 10 menores
-    means = medias_por_coluna(df, colunas_prazer)
-    imprimir_ranking_duplo(
-        "Top 10 – Highest mean rating (by pleasure)",
-        "Top 10 – Lowest mean rating (by pleasure)",
-        means, n=10
-    )
+    df = remover_duplicatas(df)
+    apos_dup = len(df)
 
-    # 03) DISTRIBUIÇÃO por ponto da escala (-3..3)
-    dist = distribuicao_por_escala(df, colunas_prazer, escala=(-3, -2, -1, 0, 1, 2, 3))
-    imprimir_tabela(
-        "Distribution of responses per scale point (-3..3) by pleasure (counts)",
-        dist, max_rows=25
-    )
+    df = remover_linhas_incompletas(df, colunas_prazer)
+    apos_incompletas = len(df)
 
-    # 04) DESVIO PADRÃO por coluna (e ranking)
-    stds = desvios_por_coluna(df, colunas_prazer)
-    imprimir_ranking_duplo(
-        "Top 10 – Highest standard deviation (most variable pleasures)",
-        "Top 10 – Lowest standard deviation (most consistent pleasures)",
-        stds, n=10
-    )
+    df = validar_escala_por_linha(df, colunas_prazer)
+    apos_validacao = len(df)
 
-    print("\n✅ Finished: results printed without scientific notation.")
+    print("\n🧹 Limpeza aplicada:")
+    print(f"- Linhas iniciais: {linhas_iniciais}")
+    print(f"- Removidas por duplicidade: {linhas_iniciais - apos_dup}")
+    print(f"- Removidas por dados faltantes: {apos_dup - apos_incompletas}")
+    print(f"- Removidas por fora da escala (-3..3): {apos_incompletas - apos_validacao}")
+    print(f"- Linhas finais: {apos_validacao}")
+
+    # (1) Top 10 com MAIORES MEDIANAS
+    top_medianas = top10_maiores_medianas(df, colunas_prazer, n=10)
+    imprimir_serie("Top 10 – Highest medians (by pleasure)", top_medianas)
+
+    # (2) Top 10 com MAIORES MÉDIAS
+    top_medias = top10_maiores_medias(df, colunas_prazer, n=10)
+    imprimir_serie("Top 10 – Highest means (by pleasure)", top_medias)
+
+    print("\n✅ Finished: rankings printed without scientific notation.")
